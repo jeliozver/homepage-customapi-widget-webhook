@@ -65,6 +65,12 @@ export interface IReplyCrossSeed extends IServerError {
   }
 }
 
+export interface IBodyCrossSeed {
+  username: string;
+  password: string;
+  url: string;
+}
+
 export interface IReplyRestic extends IServerError {
   200: {
     total_snapshots: number;

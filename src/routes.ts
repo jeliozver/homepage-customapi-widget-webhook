@@ -17,6 +17,7 @@ import type {
   IReplyWatchYourLan,
   IReplyGoAccess,
   IReplyCrossSeed,
+  IBodyCrossSeed,
   IReplyRestic,
   IReplyDockhand,
   IBodyDockhand,
@@ -141,23 +142,66 @@ server.get<{
   }
 });
 
-server.get<{
+server.post<{
   Reply: IReplyCrossSeed,
+  Body: IBodyCrossSeed,
 }>('/cs', async (request, reply): Promise<void> => {
   try {
-    // TODO: rework using login and cookies
-    const resp = await fetch(
-      'http://cross-seed.home.arpa/api/trpc/stats.getOverview?batch=1&input=%7B%7D',
+    const { url, username, password } = request.body;
+    let cookie = await getCookie(url);
+    let raw = await fetch(
+      `${url}/api/trpc/stats.getOverview?batch=1&input=%7B%7D`,
       { 
         headers: {
-          Cookie: request.headers.cookie,
+          Cookie: cookie,
         },
       },
     );
-    const json = await resp.json() as any[];
-    const data = json[0].result.data as IReplyCrossSeed[200];
 
-    reply.status(200).send(data);
+    if (raw.status === 401 && username && password) {
+      const login = await fetch(`${url}/api/trpc/auth.logIn?batch=1`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({'0': { username, password }}),
+      });
+
+      if (login.status !== 200) {
+        const r = await login.json();
+        const message = `/cs => error logging in: ${login.status}`;
+        console.error(r);
+        return reply.status(500).send({
+          message,
+        });
+      }
+
+      cookie = await setCookie(url, login.headers);
+
+      raw = await fetch(
+        `${url}/api/trpc/stats.getOverview?batch=1&input=%7B%7D`,
+        {
+          headers: {
+            Cookie: cookie,
+          },
+        },
+      );
+    }
+
+    if (raw.status === 200) {
+      const json = await raw.json() as any[];
+      const data = json[0].result.data as IReplyCrossSeed[200];
+
+      return reply.status(200).send(data);
+    }
+
+    const err = await raw.json();
+
+    const message = `/cs => status: ${raw.status} error: ${JSON.stringify(err)}`;
+    console.error(message);
+    return reply.status(500).send({
+      message,
+    });
   } catch (e) {
     console.error(`/cs => error: ${e}`);
     reply.status(500).send({
