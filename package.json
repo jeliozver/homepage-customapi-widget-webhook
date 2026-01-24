@@ -2,19 +2,17 @@
   "name": "homepage-customapi-widget-webhook",
   "version": "1.0.0",
   "description": "Webhook for Homepage customapi widgets",
-  "main": "app.js",
+  "main": "src/app.ts",
   "type": "module",
   "scripts": {
-    "clean": "rimraf dist",
-    "build": "npm run clean && tsc",
-    "serve": "npm run build && node dist/app.js"
+    "serve": "bun run src/app.ts"
   },
   "dependencies": {
     "fastify": "^5.6.2",
     "tough-cookie": "^6.0.0"
   },
   "devDependencies": {
-    "rimraf": "^6.1.2",
+    "@types/bun": "latest",
     "@types/node": "^25.0.7",
     "typescript": "^5.9.3",
     "eslint": "^9.39.2",

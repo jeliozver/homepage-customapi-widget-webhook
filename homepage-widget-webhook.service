@@ -7,11 +7,11 @@ Type=simple
 User=jeliozver
 Group=jeliozver
 WorkingDirectory=/home/jeliozver/homepage-custom-widget-webhook
-ExecStart=/usr/local/bin/npm run serve
+ExecStart=/home/jeliozver/.bun/bin/bun run serve
 KillMode=control-group
 Restart=on-failure
 Environment=NODE_ENV=production
-Environment=PATH=/usr/bin:/usr/local/bin
+Environment=PATH=/home/jeliozver/.bun/bin:/usr/local/bin:/usr/bin
 
 [Install]
 WantedBy=multi-user.target

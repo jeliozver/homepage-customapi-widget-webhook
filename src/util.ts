@@ -1,12 +1,7 @@
-import {
-  spawn,
-  type ExecException,
-} from 'child_process';
-import { readFile } from 'fs/promises';
-import type { PathLike } from 'node:fs';
-import type { FileHandle } from 'node:fs/promises';
+import { $, spawn, file } from 'bun';
 import type { FastifyReply } from 'fastify';
 
+let isGeneratingReport = false;
 const units = Object.freeze(['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']);
 const unitsSizesMap = Object.freeze({
   B: 1,
@@ -43,9 +38,9 @@ export const fromBytes = (bytes: number, decimals = 2): string => {
   return `${Number(value.toFixed(decimals))} ${units[unitIndex]}`;
 };
 
-export const readJSON = async (path: PathLike | FileHandle): Promise<string> => {
+export const readJSON = async (path: string | URL): Promise<string> => {
   try {
-    return await readFile(path, 'utf8');
+    return await file(path).text();
   } catch (e) {
     console.error(`[readJSON] error: ${e}`);
 
@@ -54,57 +49,59 @@ export const readJSON = async (path: PathLike | FileHandle): Promise<string> => 
 };
 
 export const handleExecError = (
-  error: ExecException | null,
   stderr: string,
   reply: FastifyReply,
 ): void => {
-  console.error(`error: ${error?.message}`);
   console.error(`stderr: ${stderr}`);
 
   reply
     .status(500)
     .send({
-      message: `error: ${error?.message} stderr: ${stderr}`,
+      message: `stderr: ${stderr}`,
     });
 };
 
-let isGeneratingReport = false;
+export const runShellCommand = async (cmd: string): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}> => {
+  const { stdout, stderr, exitCode } = await $`sh -c ${cmd}`.nothrow();
 
-export const generateGoAccessReport = (): void => {
+  console.log(`[runShellCommand] ${cmd} exitCode: ${exitCode}`);
+
+  return {
+    stdout: stdout.toString(),
+    stderr: stderr.toString(),
+    exitCode,
+  }
+}
+
+export const generateGoAccessReport = async (): Promise<void> => {
   if (isGeneratingReport) {
     return;
   }
 
   isGeneratingReport = true;
-  const cmd = spawn('docker', [
-    'exec',
-    '-t',
-    'goaccess-public',
-    '/goaccess/goaccess',
-    '/opt/log/access.log',
-    '--log-format=CADDY',
-    '-o',
-    '/report/report.json',
-  ]);
 
-  // cmd.stdout?.on('data', (data) => {
-  //   console.log(`[generateGoAccessReport] stdout: ${data}`);
-  // });
+  try {
+    const proc = spawn([
+      'docker',
+      'exec',
+      '-t',
+      'goaccess-public',
+      '/goaccess/goaccess',
+      '/opt/log/access.log',
+      '--log-format=CADDY',
+      '-o',
+      '/report/report.json',
+    ]);
+    const exitCode = await proc.exited;
 
-  cmd.stderr?.on('data', (data) => {
-    console.error(`[generateGoAccessReport] stderr: ${data}`);
-  });
-
-  cmd.on('error', (err) => {
-    console.error(`[generateGoAccessReport] error: ${err}`);
-  });
-
-  cmd.on('exit', (code: number) => {
-    console.log(`[generateGoAccessReport] process exited with code ${code}`);
-  });
-
-  cmd.on('close', (code) => {
+    console.log('[generateGoAccessReport] exited with code:', exitCode);
     isGeneratingReport = false;
-    console.log(`[generateGoAccessReport] process closed with code ${code}`);
-  });
+  } catch (e) {
+    console.error('[generateGoAccessReport] error:', e);
+    isGeneratingReport = false;
+  }
 };

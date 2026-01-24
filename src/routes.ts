@@ -1,16 +1,16 @@
-import { exec } from 'child_process';
-import server from './app.js';
+import server from './app';
 import {
+  runShellCommand,
   generateGoAccessReport,
   handleExecError,
   readJSON,
   toBytes,
   type Unit,
-} from './util.js';
+} from './util';
 import {
   getCookie,
   setCookie,
-} from './cookie.js';
+} from './cookie';
 import type {
   IReplyFail2Ban,
   IReplyWireGuard,
@@ -21,117 +21,113 @@ import type {
   IReplyRestic,
   IReplyDockhand,
   IBodyDockhand,
-} from './index.js';
+} from './types';
 
 server.get<{
   Reply: IReplyFail2Ban,
-}>('/fail2ban',  (request, reply): void => {
-  exec('docker exec -t fail2ban fail2ban-client status --all', (
-    error,
+}>('/fail2ban',  async (_, reply): Promise<void> => {
+  const {
     stdout,
     stderr,
-  ) => {
-    if (error || stderr) {
-      handleExecError(error, stderr, reply);
-      return;
+    exitCode,
+  } = await runShellCommand('docker exec -t fail2ban fail2ban-client status --all');
+
+  if (exitCode !== 0 || stderr) {
+    handleExecError(stderr, reply);
+    return;
+  }
+
+  try {
+    const regex:RegExp = /Number of jail:\s+([0-9]+)|Total failed:\s+([0-9]+)|Total banned:\s+([0-9]+)/g;
+
+    let array: RegExpExecArray | null;
+    let total = 0;
+    let failed = 0;
+    let banned = 0;
+
+    while ((array = regex.exec(stdout)) !== null) {
+      total += Number(array[1] || 0);
+      failed += Number(array[2] || 0);
+      banned += Number(array[3] || 0);
     }
 
-    try {
-      const regex:RegExp = /Number of jail:\s+([0-9]+)|Total failed:\s+([0-9]+)|Total banned:\s+([0-9]+)/g;
-
-      let array: RegExpExecArray | null;
-      let total = 0;
-      let failed = 0;
-      let banned = 0;
-
-      while ((array = regex.exec(stdout)) !== null) {
-        total += Number(array[1] || 0);
-        failed += Number(array[2] || 0);
-        banned += Number(array[3] || 0);
-      }
-
-      reply
-        .status(200)
-        .send({
-          total,
-          failed,
-          banned,
-        });
-    }  catch (e) {
-      console.error(`/fail2ban => error: ${e}`);
-      reply.status(500).send({
-        message: 'Something went wrong :(',
+    reply
+      .status(200)
+      .send({
+        total,
+        failed,
+        banned,
       });
-    }
-  });
+  }  catch (e) {
+    console.error(`/fail2ban => error: ${e}`);
+    reply.status(500).send({
+      message: 'Something went wrong :(',
+    });
+  }
 });
 
 server.get<{
   Reply: IReplyWireGuard,
-}>('/wireGuard', (request, reply): void => {
-  exec('pivpn clients', (
-    error,
-    stdout,
-    stderr,
-  ) => {
-    if (error || stderr) {
-      handleExecError(error, stderr, reply);
-      return;
-    }
+}>('/wireGuard', async (_, reply): Promise<void> => {
+  const { stdout, stderr, exitCode } = await runShellCommand('pivpn clients');
 
-    try {
-      const threshold = 2;
-      const maxDateStrLen = 22;
+  if (exitCode !== 0 || stderr) {
+    handleExecError(stderr, reply);
+    return;
+  }
 
-      const clients = stdout.split('\n').filter((e) => e !== '').slice(2);
-      const disabledLabelIndex = clients.indexOf('::: Disabled clients :::', 0);
-      const enabledClients = clients.slice(0, disabledLabelIndex);
-      const disabledClients = clients.slice(disabledLabelIndex + 1);
+  try {
+    const threshold = 2;
+    const maxDateStrLen = 22;
 
-      const connected: string[] = [];
-      const enabled = enabledClients.length;
-      const disabled = disabledClients.length;
-      const total = enabled + disabled;
+    const clients = stdout.split('\n').filter((e) => e !== '').slice(2);
+    const disabledLabelIndex = clients.indexOf('::: Disabled clients :::', 0);
+    const enabledClients = clients.slice(0, disabledLabelIndex);
+    const disabledClients = clients.slice(disabledLabelIndex + 1);
 
-      const now = new Date().getTime();
+    const connected: string[] = [];
+    const enabled = enabledClients.length;
+    const disabled = disabledClients.length;
+    const total = enabled + disabled;
 
-      enabledClients.forEach((client) => {
-        if (client.indexOf('(not yet)') === -1) {
-          const dateStr = client.substring(
-            client.length - maxDateStrLen,
-            client.length,
-          );
-          const lastSeen = new Date(dateStr.replace(' - ', ' ')).getTime();
+    const now = new Date().getTime();
 
-          if ((now - lastSeen) < threshold * 60 * 1000) {
-            connected.push(client);
-          }
+    enabledClients.forEach((client) => {
+      if (client.indexOf('(not yet)') === -1) {
+        const dateStr = client.substring(
+          client.length - maxDateStrLen,
+          client.length,
+        );
+        const lastSeen = new Date(dateStr.replace(' - ', ' ')).getTime();
+
+        if ((now - lastSeen) < threshold * 60 * 1000) {
+          connected.push(client);
         }
-      });
+      }
+    });
 
-      reply
-        .status(200)
-        .send({
-          connected: connected.length,
-          enabled,
-          disabled,
-          total,
-        });
-    } catch (e) {
-      console.error(`/wireGuard => error: ${e}`);
-      reply.status(500).send({
-        message: 'Something went wrong :(',
+    reply
+      .status(200)
+      .send({
+        connected: connected.length,
+        enabled,
+        disabled,
+        total,
       });
-    }
-  });
+  } catch (e) {
+    console.error(`/wireGuard => error: ${e}`);
+    reply.status(500).send({
+      message: 'Something went wrong :(',
+    });
+  }
 });
 
 server.get<{
   Reply: IReplyWatchYourLan,
-}>('/wyl', async (request, reply): Promise<void> => {
+}>('/wyl', async (_, reply): Promise<void> => {
   try {
-    const resp = await fetch('http://192.168.100.13:8840/api/status/');
-    const data = await resp.json() as IReplyWatchYourLan[200];
+    const raw = await fetch('http://192.168.100.13:8840/api/status/');
+    const data = await raw.json() as IReplyWatchYourLan[200];
 
     reply.status(200).send(data);
   } catch (e) {
@@ -212,7 +208,7 @@ server.post<{
 
 server.get<{
   Reply: IReplyGoAccess,
-}>('/goaccess', async (request, reply): Promise<void> => {
+}>('/goaccess', async (_, reply): Promise<void> => {
   try {
     generateGoAccessReport();
     const JSONString = await readJSON('../stacks/homelab/apps/goaccess/report.json');
@@ -237,42 +233,42 @@ server.get<{
 
 server.get<{
   Reply: IReplyRestic,
-}>('/restic', (request, reply): void => {
-  exec('sudo restic --repo=../restic-repo --password-file=../restic.txt snapshots', (
-    error,
+}>('/restic', async (_, reply): Promise<void> => {
+  const {
     stdout,
     stderr,
-  ) => {
-    if (error || stderr) {
-      handleExecError(error, stderr, reply);
-      return;
-    }
+    exitCode,
+  } = await runShellCommand('sudo restic --repo=../restic-repo --password-file=../restic.txt snapshots');
 
-    try {
-      const sizeRegex: RegExp = /([0-9]+\.?[0-9]+) (\w+)$/g;
-      const lines = stdout.split('\n').filter((item) => item !== '');
-      const snapshots = lines.slice(2, lines.length - 2);
-      let fullSizeInBytes = 0;
+  if (exitCode !== 0 || stderr) {
+    handleExecError(stderr, reply);
+    return;
+  }
 
-      snapshots.forEach((snapshot) => {
-        const [_, size, unit] = sizeRegex.exec(snapshot) || [];
-        sizeRegex.lastIndex = 0;
+  try {
+    const sizeRegex: RegExp = /([0-9]+\.?[0-9]+) (\w+)$/g;
+    const lines = stdout.split('\n').filter((item) => item !== '');
+    const snapshots = lines.slice(2, lines.length - 2);
+    let fullSizeInBytes = 0;
 
-        fullSizeInBytes += toBytes(Number(size), unit as Unit);
-      });
+    snapshots.forEach((snapshot) => {
+      const [_, size, unit] = sizeRegex.exec(snapshot) || [];
+      sizeRegex.lastIndex = 0;
 
-      reply.status(200).send({
-        total_snapshots: snapshots.length,
-        total_size: fullSizeInBytes,
-      });
+      fullSizeInBytes += toBytes(Number(size), unit as Unit);
+    });
 
-    } catch (e) {
-      console.error(`/restic => error: ${e}`);
-      reply.status(500).send({
-        message: 'Something went wrong :(',
-      });
-    }
-  });
+    reply.status(200).send({
+      total_snapshots: snapshots.length,
+      total_size: fullSizeInBytes,
+    });
+
+  } catch (e) {
+    console.error(`/restic => error: ${e}`);
+    reply.status(500).send({
+      message: 'Something went wrong :(',
+    });
+  }
 });
 
 server.post<{

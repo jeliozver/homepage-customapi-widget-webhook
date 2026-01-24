@@ -1,9 +1,7 @@
 import Fastify, {
   type FastifyInstance,
 } from 'fastify';
-import {
-  generateGoAccessReport,
-} from './util.js';
+import { generateGoAccessReport } from './util';
 
 const server: FastifyInstance = Fastify({});
 
@@ -14,7 +12,7 @@ process.on('SIGTERM', () => {
 
 (async () => {
   try {
-    await import('./routes.js');
+    await import('./routes');
     await server.listen({ port: 3030, host: '0.0.0.0' });
 
     const address = server.server.address();
