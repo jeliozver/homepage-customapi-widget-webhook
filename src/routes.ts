@@ -17,10 +17,13 @@ import type {
   IReplyWatchYourLan,
   IReplyGoAccess,
   IReplyCrossSeed,
-  IBodyCrossSeed,
   IReplyRestic,
-  IReplyDockhand,
-  IBodyDockhand,
+
+  ISchemaWatchYourLan,
+  ISchemaGoAccess,
+  ISchemaCrossSeed,
+
+  IBodyCrossSeed,
 } from './types';
 
 server.get<{
@@ -127,7 +130,7 @@ server.get<{
 }>('/wyl', async (_, reply): Promise<void> => {
   try {
     const raw = await fetch('http://192.168.100.13:8840/api/status/');
-    const data = await raw.json() as IReplyWatchYourLan[200];
+    const data = await raw.json() as ISchemaWatchYourLan;
 
     reply.status(200).send(data);
   } catch (e) {
@@ -186,7 +189,7 @@ server.post<{
 
     if (raw.status === 200) {
       const json = await raw.json() as any[];
-      const data = json[0].result.data as IReplyCrossSeed[200];
+      const data = json[0].result.data as ISchemaCrossSeed;
 
       return reply.status(200).send(data);
     }
@@ -220,7 +223,7 @@ server.get<{
       unique_visitors: 0,
       unique_referrers: 0,
       bandwidth: 0,
-    } as IReplyGoAccess[200];
+    } as ISchemaGoAccess;
 
     reply.status(200).send(stats);
   } catch (e) {
@@ -265,67 +268,6 @@ server.get<{
 
   } catch (e) {
     console.error(`/restic => error: ${e}`);
-    reply.status(500).send({
-      message: 'Something went wrong :(',
-    });
-  }
-});
-
-server.post<{
-  Reply: IReplyDockhand,
-  Body: IBodyDockhand,
-}>('/dockhand', async (request, reply): Promise<void> => {
-  try {
-    const { url, env, username, password } = request.body;
-    let cookie = await getCookie(url);
-
-    let raw = await fetch(`${url}/api/dashboard/stats?env=${env}`, {
-      headers: {
-        'Cookie': cookie,
-      },
-    });
-
-    if (raw.status === 401 && username && password) {
-      const login = await fetch(`${url}/api/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (login.status !== 200) {
-        const message = `/dockhand => error logging in: ${login.status}`;
-        console.error(message);
-        return reply.status(500).send({
-          message,
-        });
-      }
-
-      cookie = await setCookie(url, login.headers);
-
-      raw = await fetch(`${url}/api/dashboard/stats?env=${env}`, {
-        headers: {
-          'Cookie': cookie,
-        },
-      });
-    }
-
-    if (raw.status === 200) {
-      const data = await raw.json() as IReplyDockhand[200];
-
-      return reply.status(200).send(data);
-    }
-
-    const err = await raw.json();
-
-    const message = `/dockhand => status: ${raw.status} error: ${JSON.stringify(err)}`;
-    console.error(message);
-    return reply.status(500).send({
-      message,
-    });
-  } catch (e) {
-    console.error(`/dockhand => error: ${e}`);
     reply.status(500).send({
       message: 'Something went wrong :(',
     });
