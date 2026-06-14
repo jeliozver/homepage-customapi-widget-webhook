@@ -251,7 +251,7 @@ server.get<{
   try {
     const sizeRegex: RegExp = /([0-9]+\.?[0-9]+) (\w+)$/g;
     const lines = stdout.split('\n').filter((item) => item !== '');
-    const snapshots = lines.slice(2, lines.length - 2);
+    const snapshots = lines.slice(2, lines.length - 3);
     let fullSizeInBytes = 0;
 
     snapshots.forEach((snapshot) => {
